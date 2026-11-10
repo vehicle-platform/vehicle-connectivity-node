@@ -48,8 +48,8 @@ public:
     virtual bool enterNormalMode() = 0;
 
     /**
-     * @brief Transmits a single CAN frame. Non-blocking (or a very short internal
-     * timeout on real hardware); never waits for a response.
+     * @brief Transmits a single CAN frame. Non-blocking: never waits for queue space
+     * (D-096) nor for a response; a refused frame is dropped, not retried.
      * @return true if the frame was queued/sent successfully.
      */
     virtual bool transmit(const CanFrame& frame) = 0;
