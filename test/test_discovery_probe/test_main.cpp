@@ -854,6 +854,22 @@ void test_the_vin_entry_is_found_in_the_generated_table(void) {
     TEST_ASSERT_FALSE(scan.sensitive(kObdInfotypes));
 }
 
+// safety-reviewer MAJOR-1/2 on E-15 (1): the flag only ever adds masking. With the
+// WMI-printable index pointing elsewhere (a mis-derived index) the flagged VIN entry is still
+// sensitive and its answer never leaks; the wrong entry prints no hex dump either.
+void test_the_mask_is_monotonic_in_the_defs_flag(void) {
+    TEST_ASSERT_TRUE(vehicle_cl250_discovery_scan[kVin].sensitive);
+    DiscoveryScan scan(captureLine);
+    scan.testSetVinIndex(kVin + 1); // CALID as the WMI-printable entry
+    TEST_ASSERT_TRUE(scan.sensitive(kVin));
+    Bytes vin = withText({0x49, 0x02, 0x01}, kVinText, 17);
+    scan.recordPositive(kVin, vin.data(), (uint16_t)vin.size());
+    expectNoVinLeak();
+    TEST_ASSERT_FALSE(anyLine("+000:"));
+    scan.testSetVinIndex(DiscoveryScan::kNone); // no unique flag: the flagged entry stays masked
+    TEST_ASSERT_TRUE(scan.sensitive(kVin));
+}
+
 void test_the_mask_fails_closed_when_the_vin_entry_is_not_unique(void) {
     vehicle_cl250_scan_t table[3];
     memcpy(table, &vehicle_cl250_discovery_scan[kObdInfotypes], sizeof(table)); // 09 00, 09 02, 09 04
@@ -863,6 +879,13 @@ void test_the_mask_fails_closed_when_the_vin_entry_is_not_unique(void) {
     table[1] = table[0];
     table[2] = table[0]; // none
     TEST_ASSERT_EQUAL_UINT8(DiscoveryScan::kNone, DiscoveryScan::findVinIndex(table, 3));
+    // E-15 (1): the defs flag decides, not the request bytes: a 09 02 request without the
+    // flag is not the VIN entry, a flagged entry is whatever its request.
+    memcpy(table, &vehicle_cl250_discovery_scan[kObdInfotypes], sizeof(table));
+    table[1].sensitive = false;
+    TEST_ASSERT_EQUAL_UINT8(DiscoveryScan::kNone, DiscoveryScan::findVinIndex(table, 3));
+    table[2].sensitive = true;
+    TEST_ASSERT_EQUAL_UINT8(2, DiscoveryScan::findVinIndex(table, 3));
 
     // Without an identified VIN entry, no service 0x09 answer but the bitmap is printed.
     DiscoveryScan scan(captureLine);
@@ -1405,6 +1428,7 @@ int main(int, char**) {
     RUN_TEST(test_an_aborted_vin_reception_prints_nothing_of_it);
     RUN_TEST(test_the_vin_entry_is_found_in_the_generated_table);
     RUN_TEST(test_the_mask_fails_closed_when_the_vin_entry_is_not_unique);
+    RUN_TEST(test_the_mask_is_monotonic_in_the_defs_flag);
     RUN_TEST(test_a_foreign_request_behind_the_first_frame_latches_before_any_fc);
     RUN_TEST(test_the_fc_waits_for_a_backlogged_drain_and_is_dropped_when_late);
     RUN_TEST(test_a_frame_lost_between_the_request_and_the_first_frame_gives_no_fc);
