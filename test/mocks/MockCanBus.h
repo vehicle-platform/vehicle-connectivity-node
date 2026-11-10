@@ -2,7 +2,9 @@
 #define MOCK_CAN_BUS_H
 
 #include "../../src/hal/ICanBus.h"
+#include <Arduino.h> // native stub: millis() stamps the attempts
 #include <deque>
+#include <utility>
 #include <vector>
 
 /**
@@ -26,6 +28,11 @@ public:
     uint32_t rxLost = 0; // what rxLostCount() reports (queue overflow simulation)
     int initiateRecoveryCallCount = 0;
     int startCallCount = 0;
+    // D-096: a full TWAI TX queue refuses a frame at once (0 ms wait); it is dropped.
+    bool txQueueFull = false;
+    int txAttempts = 0; // every transmit() call
+    int txRefused = 0;  // refused because the queue was full
+    std::vector<std::pair<unsigned long, CanFrame>> attemptLog; // (millis, frame) of every call
 
     bool beginListenOnly() override {
         beginListenOnlyCallCount++;
@@ -45,8 +52,14 @@ public:
     }
 
     bool transmit(const CanFrame& frame) override {
+        txAttempts++;
+        attemptLog.emplace_back(millis(), frame);
         if (mode != Mode::NORMAL) {
             txOutsideNormalMode++; // never reaches txLog: nothing was put on the bus
+            return false;
+        }
+        if (txQueueFull) {
+            txRefused++; // nothing reaches the bus
             return false;
         }
         txLog.push_back(frame);

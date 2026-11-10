@@ -493,6 +493,51 @@ void test_aborted_reception_halts_the_epoch_and_starts_the_quiet_time(void) {
     TEST_ASSERT_EQUAL_size_t(2, r.ecu.dtcRequests.size()); // nothing more this epoch
 }
 
+// D-096: a full TX queue refuses the one FC.CTS. The reception aborts like any failed
+// segmented answer (halt SEGMENTED, quiet time), no FC ever reaches the bus, a later First
+// Frame gets none either, and the tester does not latch.
+static size_t fcAttempts(const MockCanBus& bus) {
+    size_t n = 0;
+    for (const auto& a : bus.attemptLog) {
+        if (memcmp(a.second.data, vehicle_cl250_fc_cts, 8) == 0) n++;
+    }
+    return n;
+}
+
+void test_refused_flow_control_aborts_the_reception_without_a_second_fc(void) {
+    Rig r;
+    r.ecu.count = countOf(2);
+    r.ecu.list = listOf(2);
+    TEST_ASSERT_TRUE(r.start());
+    // The list request (the second 0x19) is on the bus; its segmented answer follows.
+    while (r.ecu.dtcRequests.size() < 2 && r.t < 5000) {
+        r.t += 1;
+        r.step();
+    }
+    TEST_ASSERT_EQUAL_size_t(2, r.ecu.dtcRequests.size());
+    r.bus.txQueueFull = true;
+    while (fcAttempts(r.bus) == 0 && r.t < 5000) {
+        r.t += 1;
+        r.step();
+    }
+    TEST_ASSERT_EQUAL_size_t(1, fcAttempts(r.bus)); // tried once, refused
+    r.bus.txQueueFull = false;
+    TEST_ASSERT_EQUAL_size_t(0, r.fcCount());
+    TEST_ASSERT_EQUAL(DtcSnapshot::Halt::SEGMENTED, r.module.dtcSnapshot().halt());
+    const size_t before = r.bus.txLog.size();
+    const unsigned long abortedAt = r.t;
+    while (r.bus.txLog.size() == before) {
+        r.t += 1;
+        r.step();
+    }
+    TEST_ASSERT_TRUE(r.t - abortedAt >= VEHICLE_CL250_RESPONSE_TIMEOUT_MAX_MS);
+    r.runFor(5000);
+    TEST_ASSERT_EQUAL_size_t(1, fcAttempts(r.bus)); // never a second FC
+    TEST_ASSERT_EQUAL_size_t(0, r.fcCount());
+    TEST_ASSERT_EQUAL_size_t(2, r.ecu.dtcRequests.size()); // 0x19 off for the epoch
+    TEST_ASSERT_FALSE(r.module.latchedOff());
+}
+
 void test_no_dtc_request_without_a_confirmed_session(void) {
     Rig r;
     r.ecu.answerSession = false;
@@ -950,6 +995,7 @@ int main(int, char**) {
     RUN_TEST(test_dtc_request_holds_the_slot_for_the_base_timeout_only);
     RUN_TEST(test_first_frame_above_max_ff_dl_is_refused_and_halts_the_epoch);
     RUN_TEST(test_aborted_reception_halts_the_epoch_and_starts_the_quiet_time);
+    RUN_TEST(test_refused_flow_control_aborts_the_reception_without_a_second_fc);
     RUN_TEST(test_no_dtc_request_without_a_confirmed_session);
     RUN_TEST(test_warm_idle_starts_the_second_run_once_after_its_min_duration);
     RUN_TEST(test_warm_idle_hold_restarts_when_a_condition_breaks);

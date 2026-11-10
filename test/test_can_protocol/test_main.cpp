@@ -2088,10 +2088,10 @@ static EcuReply ecuSilentOnStopDid(uint16_t did) {
 }
 static EcuReply ecuSilent(uint16_t) { return EcuReply::SILENT; }
 
-// E-25 (4): TwaiCanBus::transmit waits up to 5 ms per frame when the TWAI TX queue is full
-// (an unacknowledged bus, e.g. the ECU powered off). The worst pass sends tester present and
-// a DID read, each on both request IDs: 4 frames, so up to 20 ms against client_step_max_ms
-// (10 ms). This pins the 4-frame bound the stall estimate in ISSUES E-25 (4) rests on.
+// E-25 (4): with the old 5 ms TWAI wait a full TX queue (an unacknowledged bus, e.g. the ECU
+// powered off) could stall the worst pass, tester present and a DID read each on both
+// request IDs = 4 frames, by 20 ms against client_step_max_ms (10 ms). D-096 removed the
+// wait (TwaiCanBus::kTxWaitMs = 0, test_twai_can_bus); the 4-frame bound stays pinned.
 static const size_t kMaxTxFramesPerPass = 4;
 
 void test_e25_one_pass_sends_at_most_four_frames(void) {
@@ -2108,6 +2108,49 @@ void test_e25_one_pass_sends_at_most_four_frames(void) {
         runEcu(module, bus, state, t, 60000, ecu, 0, &maxTx);
         TEST_ASSERT_EQUAL_UINT32(kMaxTxFramesPerPass, maxTx);
     }
+}
+
+// D-096 item 3: with the TX queue full every frame is refused at once and dropped, with no
+// retry. Differential check: from the same confirmed session, a run whose queue is full and
+// a run whose ECU is silent (every frame accepted, none answered) must attempt the same
+// frames at the same times. So a refused request takes exactly the unanswered-request
+// (timeout) path, nothing is resent in the pass or later, and nothing reaches the bus.
+static std::vector<std::pair<unsigned long, CanFrame>> d096Run(bool queueFull, size_t& onBus,
+                                                               bool& latched) {
+    MockCanBus bus;
+    MockTesterLatchStore latchStore;
+    HondaCANModule module(bus, latchStore);
+    SystemState state;
+    startPolling(module, state);
+    unsigned long t = 0;
+    confirmSession(module, bus, state, t, ecuAnswersAll);
+    runEcu(module, bus, state, t, t + 2000, ecuAnswersAll);
+    bus.txQueueFull = queueFull;
+    const size_t attemptsBefore = bus.attemptLog.size();
+    const size_t logBefore = bus.txLog.size();
+    runEcu(module, bus, state, t, t + 12000, ecuSilent);
+    onBus = bus.txLog.size() - logBefore;
+    latched = module.latchedOff();
+    return std::vector<std::pair<unsigned long, CanFrame>>(bus.attemptLog.begin() + attemptsBefore,
+                                                           bus.attemptLog.end());
+}
+
+void test_d096_a_full_tx_queue_reads_as_a_silent_ecu(void) {
+    size_t fullOnBus = 0, silentOnBus = 0;
+    bool fullLatched = true, silentLatched = true;
+    const auto full = d096Run(true, fullOnBus, fullLatched);
+    const auto silent = d096Run(false, silentOnBus, silentLatched);
+    TEST_ASSERT_EQUAL_size_t(0, fullOnBus);         // nothing reached the bus
+    TEST_ASSERT_EQUAL_size_t(silent.size(), silentOnBus); // the silent run sent every attempt
+    TEST_ASSERT_TRUE(full.size() > 4);              // the tester kept trying on later passes
+    TEST_ASSERT_EQUAL_size_t(silent.size(), full.size());
+    for (size_t i = 0; i < full.size(); i++) {
+        TEST_ASSERT_EQUAL_UINT32(silent[i].first, full[i].first);
+        TEST_ASSERT_EQUAL_HEX32(silent[i].second.id, full[i].second.id);
+        TEST_ASSERT_EQUAL_UINT8(silent[i].second.dlc, full[i].second.dlc);
+        TEST_ASSERT_EQUAL_HEX8_ARRAY(silent[i].second.data, full[i].second.data, 8);
+    }
+    TEST_ASSERT_EQUAL(silentLatched, fullLatched);
 }
 
 void test_d068_nrc31_stops_an_unverified_did_until_the_next_stop_epoch(void) {
@@ -3693,6 +3736,7 @@ int main(int, char**) {
     RUN_TEST(test_vehicle_signals_quiet_window_nrc_then_answer_stays_valid);
     RUN_TEST(test_tester_stats_do_not_change_what_is_sent);
     RUN_TEST(test_e25_one_pass_sends_at_most_four_frames);
+    RUN_TEST(test_d096_a_full_tx_queue_reads_as_a_silent_ecu);
     RUN_TEST(test_d068_table_puts_unverified_dids_after_the_verified_ones);
     RUN_TEST(test_d068_unverified_dids_wait_for_the_session_then_are_read_at_once);
     RUN_TEST(test_d068_nrc31_stops_an_unverified_did_until_the_next_stop_epoch);

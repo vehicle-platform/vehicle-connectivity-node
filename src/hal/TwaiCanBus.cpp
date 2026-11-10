@@ -45,7 +45,10 @@ bool TwaiCanBus::enterNormalMode() {
 }
 
 bool TwaiCanBus::transmit(const CanFrame& frame) {
-    twai_message_t txMsg;
+    // Zeroed: the flags union also holds ss (single shot), self (self reception) and
+    // dlc_non_comp, which the driver copies into the controller command. Left on the stack,
+    // a set `self` would echo our own request into RX and latch FOREIGN_TESTER.
+    twai_message_t txMsg = {};
     txMsg.extd = frame.extended ? 1 : 0;
     txMsg.rtr = 0;
     txMsg.identifier = frame.id;
@@ -54,7 +57,7 @@ bool TwaiCanBus::transmit(const CanFrame& frame) {
         txMsg.data[i] = frame.data[i];
     }
 
-    return twai_transmit(&txMsg, pdMS_TO_TICKS(5)) == ESP_OK;
+    return twai_transmit(&txMsg, pdMS_TO_TICKS(kTxWaitMs)) == ESP_OK; // D-096: no wait, no retry
 }
 
 bool TwaiCanBus::receive(CanFrame& frame) {
