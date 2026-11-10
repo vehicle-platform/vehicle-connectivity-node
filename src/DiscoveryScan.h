@@ -25,12 +25,15 @@ static_assert(VEHICLE_CL250_SCAN_REQUEST_MAX <= 3, "report ids assume requests o
  * defs. An entry whose `after` gate did not answer positively with a bitmap marking
  * `after_id` (NRC, no answer, aborted, short bitmap) is SKIPPED, and so are its dependents.
  *
- * VIN (D-059 item 3, D-033): only the WMI (its first 3 characters) is ever printed. The VIN
- * entry is found at run time by its SAE J1979 request (service 0x09, infotype 0x02; gen/c
- * names the table entries only in comments). Fail-closed: if not exactly one entry matches,
- * no answer of service 0x09 other than the support bitmaps is printed as data, only its
- * length. A sensitive entry's answer is never hex-dumped, also when aborted.
- * ISSUES: a `sensitive` flag on the defs entry would replace the local constants.
+ * VIN (D-059 item 3, D-033): only the WMI (its first 3 characters) is ever printed. The
+ * defs flag `sensitive` (gen/c vehicle_cl250_scan_t.sensitive, defs v0.27.0, ISSUES E-15
+ * (1)) marks the entries whose answer identifies the vehicle; defs codegen requires it on
+ * every VIN request, so no local J1979 infotype constant decides it any more. The mask is
+ * monotonic: a flagged entry is always sensitive (length only, never hex-dumped, also when
+ * aborted), and the flag never unmasks anything. The WMI may be printed only for the one
+ * flagged entry (the "WMI-printable" entry, normally the VIN); fail-closed: if not exactly
+ * one entry is flagged, nothing prints a WMI and every non-bitmap answer of service 0x09 is
+ * sensitive too.
  */
 class DiscoveryScan {
 public:
@@ -38,8 +41,7 @@ public:
     typedef void (*LineSink)(const char* line);
 
     // SAE J1979 (ISO 15031-5) standard values, not vehicle signals (architecture-guard).
-    static const uint8_t kJ1979ServiceVehicleInfo = 0x09;
-    static const uint8_t kJ1979InfotypeVin = 0x02;
+    static const uint8_t kJ1979ServiceVehicleInfo = 0x09; // the fail-closed fallback (no unique flag)
     static const uint8_t kVinLength = 17;
     static const uint8_t kWmiLength = 3;
     static const uint8_t kBitmapBytes = 4;
@@ -55,14 +57,14 @@ public:
         }
     }
 
-    // The one entry requesting the VIN, or kNone if not exactly one does (fail-closed: then
-    // every non-bitmap answer of service 0x09 is sensitive).
+    // The WMI-printable entry: the one entry defs marks sensitive (the VIN), or kNone if not
+    // exactly one is (fail-closed: then no WMI is printed and every non-bitmap answer of
+    // service 0x09 is sensitive as well as every flagged entry).
     static uint8_t findVinIndex(const vehicle_cl250_scan_t* table, uint8_t count) {
         uint8_t found = kNone;
         uint8_t matches = 0;
         for (uint8_t i = 0; i < count; i++) {
-            const vehicle_cl250_scan_t& e = table[i];
-            if (e.size == 2 && e.request[0] == kJ1979ServiceVehicleInfo && e.request[1] == kJ1979InfotypeVin) {
+            if (table[i].sensitive) {
                 found = i;
                 matches++;
             }
@@ -143,11 +145,13 @@ public:
         return len >= UDS_NEGATIVE_RESPONSE_LEN && msg[0] == UDS_SID_NEGATIVE_RESPONSE && msg[1] == entry(i).request[0];
     }
 
+    // Monotonic (safety-reviewer MAJOR-2 on E-15 (1)): the defs flag only ever adds masking.
     bool sensitive(uint8_t i) const {
-        if (_vinIndex != kNone) {
-            return i == _vinIndex;
+        if (entry(i).sensitive) {
+            return true;
         }
-        return entry(i).request[0] == kJ1979ServiceVehicleInfo && entry(i).bitmap_offset == 0;
+        return (_vinIndex == kNone) && (entry(i).request[0] == kJ1979ServiceVehicleInfo) &&
+               (entry(i).bitmap_offset == 0);
     }
 
     uint8_t vinIndex() const { return _vinIndex; }
