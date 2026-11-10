@@ -30,6 +30,9 @@ public:
     int startCallCount = 0;
     // D-096: a full TWAI TX queue refuses a frame at once (0 ms wait); it is dropped.
     bool txQueueFull = false;
+    int txFreeSlots = -1; // >= 0: that many more frames fit, then the queue is full; -1 = no limit
+    uint32_t refuseId = 0;  // != 0: frames on this ID are refused (a queue full for that pass)
+    uint8_t refuseSid = 0;  // != 0: only single frames with this SID on refuseId are refused
     int txAttempts = 0; // every transmit() call
     int txRefused = 0;  // refused because the queue was full
     std::vector<std::pair<unsigned long, CanFrame>> attemptLog; // (millis, frame) of every call
@@ -58,10 +61,13 @@ public:
             txOutsideNormalMode++; // never reaches txLog: nothing was put on the bus
             return false;
         }
-        if (txQueueFull) {
+        const bool refusedId = refuseId != 0 && frame.id == refuseId &&
+                               (refuseSid == 0 || ((frame.data[0] & 0xF0) == 0 && frame.data[1] == refuseSid));
+        if (txQueueFull || txFreeSlots == 0 || refusedId) {
             txRefused++; // nothing reaches the bus
             return false;
         }
+        if (txFreeSlots > 0) txFreeSlots--;
         txLog.push_back(frame);
         return true;
     }
