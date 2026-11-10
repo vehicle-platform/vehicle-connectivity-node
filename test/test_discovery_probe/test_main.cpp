@@ -565,6 +565,35 @@ static void expectAbortedWithoutData(HondaCANModule& module, const char* reason)
     TEST_ASSERT_FALSE(anyLine("+000:"));
 }
 
+// D-096: the one FC.CTS is refused by a full TX queue. The reception aborts ("FC not sent"),
+// the entry is ABORTED without data, no FC ever reaches the bus (not even for a repeated First
+// Frame after the queue drains) and nothing is sent in the quiet time; no latch.
+void test_a_refused_fc_aborts_the_reception_and_is_never_resent(void) {
+    MockCanBus bus;
+    MockTesterLatchStore latchStore;
+    HondaCANModule module(bus, latchStore);
+    SystemState state;
+    unsigned long t = scanUpTo(module, bus, state, kDtcList);
+    Bytes answer = defaultEcu(requestOf(kDtcList));
+    bus.txQueueFull = true;
+    const int attemptsBefore = bus.txAttempts;
+    bus.injectRxFrame(firstFrame(answer));
+    setClock(t += 5);
+    module.update(state);
+    TEST_ASSERT_EQUAL(1, bus.txAttempts - attemptsBefore); // the FC, tried once
+    TEST_ASSERT_EQUAL(0, bus.txLog.size());
+    expectAbortedWithoutData(module, "FC not sent");
+    bus.txQueueFull = false;
+    bus.injectRxFrame(firstFrame(answer)); // a repeated First Frame gets no FC either
+    for (int k = 0; k < 100; k++) {
+        setClock(t += 5);
+        module.update(state);
+    }
+    TEST_ASSERT_EQUAL(0, countFc(bus));
+    TEST_ASSERT_EQUAL(0, bus.txLog.size()); // the quiet time holds
+    TEST_ASSERT_FALSE(module.latchedOff());
+}
+
 void test_a_sequence_gap_aborts_the_reception(void) {
     MockCanBus bus;
     MockTesterLatchStore latchStore;
@@ -1326,6 +1355,7 @@ int main(int, char**) {
     RUN_TEST(test_no_fc_without_a_scan_request_in_flight);
     RUN_TEST(test_a_too_long_or_invalid_first_frame_gets_no_fc_and_a_quiet_time);
     RUN_TEST(test_a_full_burst_of_the_maximum_length_completes_in_one_pass);
+    RUN_TEST(test_a_refused_fc_aborts_the_reception_and_is_never_resent);
     RUN_TEST(test_a_sequence_gap_aborts_the_reception);
     RUN_TEST(test_n_cr_aborts_but_cfs_already_queued_after_a_slow_pass_are_not_late);
     RUN_TEST(test_a_lost_frame_aborts_the_reception);

@@ -538,6 +538,65 @@ void test_refused_flow_control_aborts_the_reception_without_a_second_fc(void) {
     TEST_ASSERT_FALSE(r.module.latchedOff());
 }
 
+// D-096 follow-up (conn#42 review MINOR-2): the count goes to both request IDs, and a full
+// TX queue can refuse either copy. Primary refused: only the fallback copy is on the bus, no
+// node answers it, the run halts NO_ANSWER and nothing is resent. Fallback refused: the
+// primary answer locks the run as usual. No latch in either case.
+static size_t dtcAttemptsOn(const MockCanBus& bus, uint32_t id) {
+    size_t n = 0;
+    for (const auto& a : bus.attemptLog) {
+        if (a.second.id == id && (a.second.data[0] & 0xF0) == 0 && a.second.data[1] == UDS_SID_READ_DTC_INFORMATION) n++;
+    }
+    return n;
+}
+
+static size_t dtcOnBus(const MockCanBus& bus, uint32_t id) {
+    size_t n = 0;
+    for (const CanFrame& f : bus.txLog) {
+        if (f.id == id && (f.data[0] & 0xF0) == 0 && f.data[1] == UDS_SID_READ_DTC_INFORMATION) n++;
+    }
+    return n;
+}
+
+static void refuseUntilTheCountIsTried(Rig& r, uint32_t id) {
+    r.bus.refuseId = id;
+    r.bus.refuseSid = UDS_SID_READ_DTC_INFORMATION;
+    while (dtcAttemptsOn(r.bus, id) == 0 && r.t < 10000) {
+        r.t += 5;
+        r.step();
+    }
+    r.bus.refuseId = 0;
+    r.bus.refuseSid = 0;
+    TEST_ASSERT_EQUAL_size_t(1, dtcAttemptsOn(r.bus, VEHICLE_CL250_REQUEST_ID));
+    TEST_ASSERT_EQUAL_size_t(1, dtcAttemptsOn(r.bus, VEHICLE_CL250_FALLBACK_REQUEST_ID));
+}
+
+void test_count_with_the_primary_copy_refused_halts_without_a_resend(void) {
+    Rig r;
+    TEST_ASSERT_TRUE(r.start());
+    refuseUntilTheCountIsTried(r, VEHICLE_CL250_REQUEST_ID);
+    r.runFor(5000);
+    TEST_ASSERT_EQUAL_size_t(0, r.ecu.dtcRequests.size());
+    TEST_ASSERT_EQUAL_size_t(0, dtcOnBus(r.bus, VEHICLE_CL250_REQUEST_ID));
+    TEST_ASSERT_EQUAL_size_t(1, dtcOnBus(r.bus, VEHICLE_CL250_FALLBACK_REQUEST_ID)); // the only copy
+    TEST_ASSERT_EQUAL(DtcSnapshot::Halt::NO_ANSWER, r.module.dtcSnapshot().halt());
+    TEST_ASSERT_EQUAL_size_t(1, dtcAttemptsOn(r.bus, VEHICLE_CL250_REQUEST_ID)); // never resent
+    TEST_ASSERT_EQUAL_size_t(1, dtcAttemptsOn(r.bus, VEHICLE_CL250_FALLBACK_REQUEST_ID));
+    TEST_ASSERT_FALSE(r.module.latchedOff());
+}
+
+void test_count_with_the_fallback_copy_refused_runs_on_the_primary(void) {
+    Rig r;
+    TEST_ASSERT_TRUE(r.start());
+    refuseUntilTheCountIsTried(r, VEHICLE_CL250_FALLBACK_REQUEST_ID);
+    r.runFor(5000);
+    TEST_ASSERT_EQUAL_size_t(1, r.ecu.dtcRequests.size());
+    TEST_ASSERT_EQUAL_size_t(0, dtcOnBus(r.bus, VEHICLE_CL250_FALLBACK_REQUEST_ID));
+    TEST_ASSERT_EQUAL(1, countLines("ended: no DTC"));
+    TEST_ASSERT_EQUAL(DtcSnapshot::Halt::NONE, r.module.dtcSnapshot().halt());
+    TEST_ASSERT_FALSE(r.module.latchedOff());
+}
+
 void test_no_dtc_request_without_a_confirmed_session(void) {
     Rig r;
     r.ecu.answerSession = false;
@@ -996,6 +1055,8 @@ int main(int, char**) {
     RUN_TEST(test_first_frame_above_max_ff_dl_is_refused_and_halts_the_epoch);
     RUN_TEST(test_aborted_reception_halts_the_epoch_and_starts_the_quiet_time);
     RUN_TEST(test_refused_flow_control_aborts_the_reception_without_a_second_fc);
+    RUN_TEST(test_count_with_the_primary_copy_refused_halts_without_a_resend);
+    RUN_TEST(test_count_with_the_fallback_copy_refused_runs_on_the_primary);
     RUN_TEST(test_no_dtc_request_without_a_confirmed_session);
     RUN_TEST(test_warm_idle_starts_the_second_run_once_after_its_min_duration);
     RUN_TEST(test_warm_idle_hold_restarts_when_a_condition_breaks);
