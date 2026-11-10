@@ -408,6 +408,43 @@ static unsigned long scanUpTo(HondaCANModule& module, MockCanBus& bus, SystemSta
     return t;
 }
 
+// ISSUES E-18 (2): an NRC to a scan entry, even a 0x22 entry whose answer looks like a DID
+// read's, resolves only that entry: no vehicle-signal record changes (the BLE block shows
+// the polled DIDs only; `_pendingDidIndex` is -1 for a scan request).
+static bool sameRecords(const VehicleSignalStore& a, const VehicleSignalStore& b) {
+    for (int i = 0; i < VEHICLE_CL250_DID_COUNT; i++) {
+        const VehicleSignalRecord& x = a.dids[i];
+        const VehicleSignalRecord& y = b.dids[i];
+        if (x.raw != y.raw || x.updatedMs != y.updatedMs || x.hasValue != y.hasValue ||
+            x.lastWasNrc != y.lastWasNrc || x.nrc != y.nrc || x.skipped != y.skipped) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void test_an_nrc_to_a_scan_entry_never_touches_a_did_record(void) {
+    const uint8_t entries[] = {kDid0, kObdInfotypes};
+    for (uint8_t entry : entries) {
+        MockCanBus bus;
+        MockTesterLatchStore latchStore;
+        HondaCANModule module(bus, latchStore);
+        SystemState state;
+        unsigned long t = scanUpTo(module, bus, state, entry);
+        const VehicleSignalStore before = state.vehicleSignals;
+        const Bytes req = requestOf(entry);
+        bus.injectRxFrame(singleFrame({0x7F, req[0], 0x78})); // pending first: no extension of a DID
+        setClock(t += 5);
+        module.update(state);
+        bus.injectRxFrame(singleFrame({0x7F, req[0], 0x31}));
+        setClock(t += 5);
+        module.update(state);
+        TEST_ASSERT_TRUE(module.testScan().status(entry) == DiscoveryScan::Status::NRC);
+        TEST_ASSERT_TRUE(sameRecords(before, state.vehicleSignals));
+        TEST_ASSERT_FALSE(module.latchedOff());
+    }
+}
+
 void test_fc_is_sent_once_byte_exact_on_the_paired_request_id(void) {
     MockCanBus bus;
     MockTesterLatchStore latchStore;
@@ -1349,6 +1386,7 @@ int main(int, char**) {
     RUN_TEST(test_one_request_in_flight_across_the_whole_scan);
     RUN_TEST(test_bitmap_gates_skip_unsupported_entries_and_their_chain);
     RUN_TEST(test_a_gate_with_an_nrc_skips_its_dependents);
+    RUN_TEST(test_an_nrc_to_a_scan_entry_never_touches_a_did_record);
     RUN_TEST(test_fc_is_sent_once_byte_exact_on_the_paired_request_id);
     RUN_TEST(test_fc_for_a_fallback_answer_goes_to_the_fallback_request_id);
     RUN_TEST(test_no_fc_for_a_first_frame_that_does_not_answer_the_request_in_flight);
