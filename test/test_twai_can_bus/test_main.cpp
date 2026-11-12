@@ -3,8 +3,8 @@
 // D-096 (closes ISSUES E-25 (4)): the tester's TWAI transmit never waits for TX queue space
 // and never retries. TwaiCanBus.cpp is compiled here against the driver stub in
 // test/native_stubs/driver/ ([env:native] builds no src/, so the file is included directly).
-#include "../../src/hal/TwaiCanBus.h"
-#include "../../src/hal/TwaiCanBus.cpp"
+#include "hal/TwaiCanBus.h"
+#include "hal/TwaiCanBus.cpp"
 
 static CanFrame request() {
     CanFrame f{};

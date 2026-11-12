@@ -1,7 +1,7 @@
 #ifndef MOCK_TESTER_LATCH_STORE_H
 #define MOCK_TESTER_LATCH_STORE_H
 
-#include "../../src/TesterLatch.h"
+#include "TesterLatch.h"
 
 /**
  * @brief Q-018 -- In-memory stand-in for the RTC no-init latch record. It keeps the raw

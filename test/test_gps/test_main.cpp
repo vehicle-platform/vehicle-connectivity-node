@@ -7,12 +7,12 @@
 // D-060 item 2 -- native tests of the GPS path's pure parts: the byte-wise UBX parser, the
 // UBX-CFG frame builder, the seqlock between the GPS task and the Arduino loop, and the
 // BLE GPS block packer (D-060 item 3, ble_schema.json `gpsBlock`) and the notify decision.
-#include "../../src/GpsBlockPacket.h"
-#include "../../src/GpsCore.h"
-#include "../../src/GpsNotifyTracker.h"
-#include "../../src/Seqlock.h"
-#include "../../src/UbxConfig.h"
-#include "../../src/UbxParser.h"
+#include "GpsBlockPacket.h"
+#include "GpsCore.h"
+#include "GpsNotifyTracker.h"
+#include "Seqlock.h"
+#include "UbxConfig.h"
+#include "UbxParser.h"
 
 namespace {
 

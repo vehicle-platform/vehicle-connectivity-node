@@ -1,7 +1,7 @@
 #ifndef MOCK_CAN_BUS_H
 #define MOCK_CAN_BUS_H
 
-#include "../../src/hal/ICanBus.h"
+#include "hal/ICanBus.h"
 #include <Arduino.h> // native stub: millis() stamps the attempts
 #include <deque>
 #include <utility>

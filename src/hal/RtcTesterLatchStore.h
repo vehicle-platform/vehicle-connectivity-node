@@ -1,7 +1,7 @@
 #ifndef RTC_TESTER_LATCH_STORE_H
 #define RTC_TESTER_LATCH_STORE_H
 
-#include "../TesterLatch.h"
+#include "TesterLatch.h"
 
 /**
  * @brief Q-018 -- keeps the D-030 poller latch and the bus-off count in RTC no-init

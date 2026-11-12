@@ -1,18 +1,18 @@
 #include <unity.h>
 #include <string.h>
 #include <thread>
-#include "../../src/SystemState.h"
-#include "../../src/BLETelemetryPacket.h"
-#include "../../src/ImuBlockPacket.h"
-#include "../../src/VehicleSignalBlock.h"
-#include "../../src/TelemetryJson.h"
-#include "../../src/TelematicsParser.h"
+#include "SystemState.h"
+#include "BLETelemetryPacket.h"
+#include "ImuBlockPacket.h"
+#include "VehicleSignalBlock.h"
+#include "TelemetryJson.h"
+#include "TelematicsParser.h"
 
 // [env:native] builds no src/ and no library, so this suite pulls in the implementation
 // files it needs as one translation unit (same pattern as test/test_can_protocol).
-#include "../../src/TelemetryJson.cpp"
-#include "../../src/TelematicsParser.cpp"
-#include "../../external/vehicle-defs/gen/c/conn/vehicle_cl250.c"
+#include "TelemetryJson.cpp"
+#include "TelematicsParser.cpp"
+#include "vehicle_cl250.c"
 
 // G5.1/G5.2 -- Native (host-compiled, no ESP32/device needed) tests for the
 // hardware-independent pieces of the telemetry stack: SystemState's staleness
