@@ -1,7 +1,7 @@
 #ifndef MOCK_CAN_RX_H
 #define MOCK_CAN_RX_H
 
-#include "../../src/hal/ICanRx.h"
+#include "hal/ICanRx.h"
 #include <deque>
 
 /**

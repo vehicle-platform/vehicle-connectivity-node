@@ -4,10 +4,10 @@
 // failures that turn 0x19 off for the epoch. Same single translation unit pattern as
 // test_can_protocol: the exact HondaCANModule.cpp of the tester env, against a simulated ECU.
 #include <unity.h>
-#include "../../src/HondaCANModule.h"
-#include "../mocks/MockCanBus.h"
-#include "../mocks/MockTesterLatchStore.h"
-#include "../../src/IsoTpCan.h"
+#include "HondaCANModule.h"
+#include "mocks/MockCanBus.h"
+#include "mocks/MockTesterLatchStore.h"
+#include "IsoTpCan.h"
 #include "uds_iso14229.h" // generated (gen/c/conn/, D-040)
 #include <cstdio>
 #include <cstdlib>
@@ -15,8 +15,8 @@
 #include <string>
 #include <vector>
 
-#include "../../src/HondaCANModule.cpp"
-#include "../../external/vehicle-defs/gen/c/conn/vehicle_cl250.c"
+#include "HondaCANModule.cpp"
+#include "vehicle_cl250.c"
 
 typedef std::vector<uint8_t> Bytes;
 
