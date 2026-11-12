@@ -1,8 +1,8 @@
 #include <unity.h>
-#include "../../src/HondaCANModule.h"
-#include "../mocks/MockCanBus.h"
-#include "../mocks/MockTesterLatchStore.h"
-#include "../../src/IsoTpCan.h"
+#include "HondaCANModule.h"
+#include "mocks/MockCanBus.h"
+#include "mocks/MockTesterLatchStore.h"
+#include "IsoTpCan.h"
 #include "uds_iso14229.h" // generated (gen/c/conn/, D-040)
 #include <vector>
 #include <cstring>
@@ -13,8 +13,8 @@
 // file it needs directly, as a single translation unit -- HondaCANModule.cpp itself
 // is completely unmodified for this to work; it only depends on ICanBus + the two
 // stubbed Arduino symbols (Serial, millis/delay) already provided for test_native.
-#include "../../src/HondaCANModule.cpp"
-#include "../../external/vehicle-defs/gen/c/conn/vehicle_cl250.c"
+#include "HondaCANModule.cpp"
+#include "vehicle_cl250.c"
 
 // G5.1 -- Native tests for HondaCANModule's actual UDS protocol logic (request state
 // machine, NRC handling, ISO-TP frame checking, bus-off recovery, ECU-presence
