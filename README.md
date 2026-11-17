@@ -53,6 +53,15 @@ cppcheck --std=c++11 --enable=warning,performance,portability --error-exitcode=1
 
 Toolchain: PlatformIO, `framework = arduino, espidf` (Arduino-ESP32 2.0.x on ESP-IDF 4.4), board `esp32-s3-devkitc-1`.
 
+## Known limitations (prototype)
+
+This node is a test prototype (D-078); none of these change behaviour yet.
+
+- BLE pairing is "Just Works" (no MITM protection); the RX write and GPS characteristics need an encrypted, bonded link, the telemetry, IMU and vehicle-signal notifications do not.
+- The Wi-Fi AP password is a compile-time define (`AP_PASSWORD` from `platformio_local.ini`), not provisioned per device.
+- `/api/telemetry` is unauthenticated read-only JSON, protected only by the WPA2 AP.
+- No secure boot, flash or NVS encryption, console/JTAG lockdown or OTA rollback is configured yet (there is no OTA code).
+
 ## License
 
 MIT, see `LICENSE` (D-036).

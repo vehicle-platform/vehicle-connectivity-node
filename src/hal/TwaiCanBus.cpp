@@ -61,18 +61,31 @@ bool TwaiCanBus::transmit(const CanFrame& frame) {
 }
 
 bool TwaiCanBus::receive(CanFrame& frame) {
-    twai_message_t rxMsg;
-    if (twai_receive(&rxMsg, 0) != ESP_OK) {
-        return false;
+    // Remote (RTR) frames carry no data and are never a UDS request or answer: they are
+    // skipped here (counted), and the next queued frame is read, so one RTR frame does not
+    // end the caller's bounded drain early. The skip loop is bounded by the RX queue depth.
+    for (uint32_t n = 0; n < kCanRxQueueLen; n++) {
+        twai_message_t rxMsg = {}; // zeroed: the driver leaves the data of an RTR frame untouched
+        if (twai_receive(&rxMsg, 0) != ESP_OK) {
+            return false;
+        }
+        if (rxMsg.rtr) {
+            if (_rtrDropped < UINT32_MAX) {
+                _rtrDropped++;
+            }
+            continue;
+        }
+        // A classic CAN DLC of 9..15 still carries 8 data bytes: clamp, never pass it on.
+        const uint8_t dlc = (rxMsg.data_length_code > 8) ? 8 : rxMsg.data_length_code;
+        frame.id = rxMsg.identifier;
+        frame.extended = rxMsg.extd;
+        frame.dlc = dlc;
+        for (int i = 0; i < 8; i++) {
+            frame.data[i] = (i < dlc) ? rxMsg.data[i] : 0; // nothing past the DLC is passed on
+        }
+        return true;
     }
-
-    frame.id = rxMsg.identifier;
-    frame.extended = rxMsg.extd;
-    frame.dlc = rxMsg.data_length_code;
-    for (int i = 0; i < 8; i++) {
-        frame.data[i] = rxMsg.data[i];
-    }
-    return true;
+    return false;
 }
 
 CanBusState TwaiCanBus::getState() {

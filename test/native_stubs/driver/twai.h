@@ -79,6 +79,11 @@ struct TwaiStub {
     bool txQueueFull = false; // twai_transmit refuses at once (with a 0 wait) like a full queue
     int sent = 0;
     twai_message_t lastSent{};
+    // Frames twai_receive() hands out, in order; the fake driver fills only what a test sets,
+    // like the real one for an RTR frame (the caller's message is otherwise left alone).
+    twai_message_t rx[8];
+    int rxCount = 0;
+    int rxNext = 0;
 };
 inline TwaiStub& twaiStub() {
     static TwaiStub stub;
@@ -104,7 +109,20 @@ inline esp_err_t twai_transmit(const twai_message_t* message, TickType_t ticks_t
     s.lastSent = *message;
     return ESP_OK;
 }
-inline esp_err_t twai_receive(twai_message_t*, TickType_t) { return ESP_ERR_TIMEOUT; }
+inline esp_err_t twai_receive(twai_message_t* message, TickType_t) {
+    TwaiStub& s = twaiStub();
+    if (s.rxNext >= s.rxCount) {
+        return ESP_ERR_TIMEOUT;
+    }
+    const twai_message_t& m = s.rx[s.rxNext++];
+    message->flags = m.flags;
+    message->identifier = m.identifier;
+    message->data_length_code = m.data_length_code;
+    if (!m.rtr) { // an RTR frame has no data field: the caller's bytes stay as they were
+        memcpy(message->data, m.data, sizeof message->data);
+    }
+    return ESP_OK;
+}
 inline esp_err_t twai_get_status_info(twai_status_info_t* status) {
     memset(status, 0, sizeof *status);
     status->state = TWAI_STATE_RUNNING;
