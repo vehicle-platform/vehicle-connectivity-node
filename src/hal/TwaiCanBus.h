@@ -20,6 +20,7 @@ private:
     gpio_num_t _txPin;
     gpio_num_t _rxPin;
     bool _installed = false;
+    uint32_t _rtrDropped = 0; // remote frames skipped by receive()
 
     bool install(twai_mode_t mode);
     void uninstall();
@@ -36,6 +37,9 @@ public:
     static constexpr uint32_t kTxWaitMs = 0;
 
     TwaiCanBus(gpio_num_t txPin, gpio_num_t rxPin);
+
+    // Remote (RTR) frames receive() skipped since construction (saturating).
+    uint32_t rtrDropped() const { return _rtrDropped; }
 
     bool beginListenOnly() override;
     bool enterNormalMode() override;

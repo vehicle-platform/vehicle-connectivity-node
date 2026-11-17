@@ -52,10 +52,51 @@ void test_a_full_queue_drops_the_frame_without_wait_or_retry(void) {
     TEST_ASSERT_EQUAL_INT(0, twaiStub().sent);
 }
 
+static twai_message_t rxMsg(uint32_t id, uint8_t dlc, uint8_t fill) {
+    twai_message_t m = {};
+    m.extd = 1;
+    m.identifier = id;
+    m.data_length_code = dlc;
+    memset(m.data, fill, sizeof m.data);
+    return m;
+}
+
+void test_receive_skips_rtr_frames_and_counts_them(void) {
+    TwaiCanBus bus(GPIO_NUM_4, GPIO_NUM_5);
+    twai_message_t rtr = rxMsg(0x18DAF110u, 8, 0xAA);
+    rtr.rtr = 1;
+    twaiStub().rx[0] = rtr;
+    twaiStub().rx[1] = rxMsg(0x18DAF110u, 3, 0x11);
+    twaiStub().rxCount = 2;
+    CanFrame f{};
+    TEST_ASSERT_TRUE(bus.receive(f)); // the RTR frame is skipped, the next one is returned
+    TEST_ASSERT_EQUAL_UINT8(3, f.dlc);
+    TEST_ASSERT_EQUAL_UINT32(1u, bus.rtrDropped());
+    TEST_ASSERT_FALSE(bus.receive(f));
+}
+
+void test_receive_clamps_dlc_and_zeroes_bytes_past_it(void) {
+    TwaiCanBus bus(GPIO_NUM_4, GPIO_NUM_5);
+    twaiStub().rx[0] = rxMsg(0x18DAF110u, 15, 0x55);
+    twaiStub().rx[1] = rxMsg(0x18DAF110u, 2, 0x77);
+    twaiStub().rxCount = 2;
+    CanFrame f{};
+    TEST_ASSERT_TRUE(bus.receive(f));
+    TEST_ASSERT_EQUAL_UINT8(8, f.dlc);
+    TEST_ASSERT_EQUAL_HEX8(0x55, f.data[7]);
+    TEST_ASSERT_TRUE(bus.receive(f));
+    TEST_ASSERT_EQUAL_UINT8(2, f.dlc);
+    TEST_ASSERT_EQUAL_HEX8(0x77, f.data[1]);
+    TEST_ASSERT_EQUAL_HEX8(0x00, f.data[2]); // nothing past the DLC is passed on
+    TEST_ASSERT_EQUAL_HEX8(0x00, f.data[7]);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_transmit_passes_a_zero_wait_to_the_driver);
     RUN_TEST(test_a_full_queue_drops_the_frame_without_wait_or_retry);
     RUN_TEST(test_a_standard_frame_carries_no_flag_bits);
+    RUN_TEST(test_receive_skips_rtr_frames_and_counts_them);
+    RUN_TEST(test_receive_clamps_dlc_and_zeroes_bytes_past_it);
     return UNITY_END();
 }
