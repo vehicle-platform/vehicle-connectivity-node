@@ -505,6 +505,9 @@ void HondaCANModule::poll(SystemState& state) {
     // every other build): during the scan, tester present and the session retry go out only
     // between requests, never while one is in flight.
     const bool txHold = beforeDeadline(now, _txQuietUntilMs);
+    if (!txHold) {
+        _ffHoldRun = false; // D-116: the run of withheld First Frames ends at this send slot
+    }
     bool auxAllowed = true;
 #if CONN_DISCOVERY_PROBE
     if (_scanPhase != ScanPhase::DONE) {
@@ -1063,6 +1066,21 @@ void HondaCANModule::holdTx(unsigned long now) {
     }
 }
 
+// D-116 (amends D-059): a First Frame withheld an FC opens one quiet window per run, counted
+// from the first one. Later ones before the window closes only count. The flag is cleared at
+// the poll's send slot (update(), after the drain), not by a time comparison, so a request slot
+// follows every run and a 2^32 ms wrap cannot alias it. Mirrors rt-core uds_client_core.
+void HondaCANModule::holdTxForWithheldFf(unsigned long now) {
+    if (_ffHoldRun) {
+        if (_fcHoldNotRenewed < 0xFFFFFFFFu) {
+            _fcHoldNotRenewed++;
+        }
+        return;
+    }
+    _ffHoldRun = true;
+    holdTx(now);
+}
+
 void HondaCANModule::sendDtcRequest(unsigned long now) {
     uint8_t request[DtcSnapshot::kRequestMax];
     const uint8_t len = _dtc.buildRequest(request);
@@ -1218,7 +1236,7 @@ void HondaCANModule::onFirstFrame(const CanFrame& f, unsigned long now, uint8_t&
         } else {
             // The other response ID answered too (requests go to both IDs): that one gets
             // no FC, and its ECU times out on N_Bs (safety-reviewer MINOR-2).
-            holdTx(now);
+            holdTxForWithheldFf(now);
             if (_pendingDtc) {
                 // D-080 MAJOR-1 (a): this would repeat for every segmented 0x19 answer; once
                 // per epoch, then 0x19 is off (the reception in progress still completes).
@@ -1255,7 +1273,7 @@ void HondaCANModule::onFirstFrame(const CanFrame& f, unsigned long now, uint8_t&
         return;
     }
     // No FC: too long, not an answer to the request in flight, in a quiet time, or a second FF.
-    holdTx(now);
+    holdTxForWithheldFf(now);
     if (takeLogSlot(logBudget)) {
         Serial.printf("[UDS WARNING] First Frame (FF_DL=%u) not answered with an FC; no request for %lu ms.\n",
             announced, kResponsePendingMaxMs);

@@ -239,6 +239,132 @@ void test_did_first_frame_never_gets_a_flow_control(void) {
     }
 }
 
+// D-116 (amends D-059; mirrors rt-core uds_client_core tests, ISSUES E-16 (3)): after a First
+// Frame that gets no FC the tester sends no request for response_timeout_max_ms counted from
+// the FIRST withheld First Frame of a run; later ones inside that window do not renew it, and
+// the window closes at the next send slot, so a request slot follows every run whatever the
+// FF rate. Only WHEN the tester stays quiet changes; no request, service or gate changes.
+static CanFrame makeUnsolicitedAnswerFirstFrame() {
+    CanFrame ff = makeMultiFrameFirstFrame();
+    ff.data[1] = 0x0A; // FF_DL 10
+    ff.data[2] = 0x62;
+    ff.data[3] = 0x00; // a DID that is not in flight: no read consequence, only the quiet time
+    ff.data[4] = 0x00;
+    return ff;
+}
+
+static bool isRequestFrame(const CanFrame& f) {
+    return f.id == VEHICLE_CL250_REQUEST_ID;
+}
+
+// One First Frame every `period` ms (1 ms steps, the loop drains before it decides) for
+// `total` ms. Returns the request count; checks the silence from the first FF after the last
+// request never exceeds the window plus one step.
+static size_t runFfStorm(unsigned long period, unsigned long total) {
+    MockCanBus bus;
+    MockTesterLatchStore latchStore;
+    HondaCANModule module(bus, latchStore);
+    SystemState state;
+    startPolling(module, state);
+    unsigned long lastReq = 0;
+    unsigned long ffStart = 0;
+    size_t requests = 0;
+    for (unsigned long t = 1; t <= total; t++) {
+        setClock(t);
+        if ((t % period) == 0) {
+            if (ffStart <= lastReq) {
+                ffStart = t;
+            }
+            bus.injectRxFrame(makeUnsolicitedAnswerFirstFrame());
+        }
+        const size_t before = bus.txLog.size();
+        module.update(state);
+        for (size_t i = before; i < bus.txLog.size(); i++) {
+            if (isRequestFrame(bus.txLog[i])) {
+                const unsigned long since = t - ((ffStart > lastReq) ? ffStart : lastReq);
+                TEST_ASSERT_TRUE(since <= VEHICLE_CL250_RESPONSE_TIMEOUT_MAX_MS + 1);
+                lastReq = t;
+                requests++;
+                break;
+            }
+        }
+    }
+    for (const CanFrame& f : bus.txLog) {
+        TEST_ASSERT_EQUAL_HEX8(0x0, f.data[0] & 0xF0); // still Single Frames only, never an FC
+    }
+    return requests;
+}
+
+void test_d116_a_first_frame_every_ms_leaves_a_request_slot_per_window(void) {
+    const size_t requests = runFfStorm(1, 10000);
+    TEST_ASSERT_TRUE(requests >= 10000 / (VEHICLE_CL250_RESPONSE_TIMEOUT_MAX_MS + 1));
+}
+
+void test_d116_first_frame_rates_from_2_to_2001_ms_leave_a_request_slot_per_window(void) {
+    const unsigned long periods[] = {2, 5, 20, 1000, 1999, 2000, 2001};
+    for (unsigned long period : periods) {
+        const size_t requests = runFfStorm(period, 12000);
+        TEST_ASSERT_TRUE(requests >= 12000 / (VEHICLE_CL250_RESPONSE_TIMEOUT_MAX_MS + 1));
+    }
+}
+
+// The window is counted from the first FF: a second FF 1000 ms later does not push it out, and
+// a First Frame in the expiry step does not reopen it.
+void test_d116_second_first_frame_does_not_renew_and_expiry_step_ff_does_not_reopen(void) {
+    MockCanBus bus;
+    MockTesterLatchStore latchStore;
+    HondaCANModule module(bus, latchStore);
+    SystemState state;
+    startPolling(module, state);
+    setClock(5);
+    bus.injectRxFrame(makeUnsolicitedAnswerFirstFrame());
+    module.update(state);
+    setClock(1005);
+    bus.injectRxFrame(makeUnsolicitedAnswerFirstFrame()); // inside the window: not a renewal
+    module.update(state);
+    const size_t before = bus.txLog.size();
+    for (unsigned long t = 1006; t < 5 + VEHICLE_CL250_RESPONSE_TIMEOUT_MAX_MS; t++) {
+        setClock(t);
+        module.update(state);
+    }
+    TEST_ASSERT_EQUAL_UINT32(before, bus.txLog.size()); // quiet until first FF + 2000 ms
+    setClock(5 + VEHICLE_CL250_RESPONSE_TIMEOUT_MAX_MS);
+    bus.injectRxFrame(makeUnsolicitedAnswerFirstFrame()); // expiry step
+    module.update(state);
+    bool sent = false;
+    for (size_t i = before; i < bus.txLog.size(); i++) {
+        sent = sent || isRequestFrame(bus.txLog[i]);
+    }
+    TEST_ASSERT_TRUE(sent); // a request slot follows the run
+}
+
+// After the window closed, a fresh First Frame holds the full window again.
+void test_d116_a_fresh_first_frame_after_the_window_holds_the_full_window(void) {
+    MockCanBus bus;
+    MockTesterLatchStore latchStore;
+    HondaCANModule module(bus, latchStore);
+    SystemState state;
+    startPolling(module, state);
+    setClock(5);
+    bus.injectRxFrame(makeUnsolicitedAnswerFirstFrame());
+    module.update(state);
+    setClock(5 + VEHICLE_CL250_RESPONSE_TIMEOUT_MAX_MS);
+    module.update(state); // window closes at this send slot
+    const unsigned long t1 = 5 + VEHICLE_CL250_RESPONSE_TIMEOUT_MAX_MS + 50;
+    setClock(t1);
+    bus.injectRxFrame(makeUnsolicitedAnswerFirstFrame());
+    module.update(state);
+    const size_t before = bus.txLog.size();
+    for (unsigned long t = t1 + 1; t < t1 + VEHICLE_CL250_RESPONSE_TIMEOUT_MAX_MS; t++) {
+        setClock(t);
+        module.update(state);
+    }
+    TEST_ASSERT_EQUAL_UINT32(before, bus.txLog.size());
+    setClock(t1 + VEHICLE_CL250_RESPONSE_TIMEOUT_MAX_MS);
+    module.update(state);
+    TEST_ASSERT_TRUE(bus.txLog.size() > before);
+}
+
 void test_bus_off_triggers_recovery_with_backoff(void) {
     MockCanBus bus;
     MockTesterLatchStore latchStore;
@@ -3677,6 +3803,10 @@ int main(int, char**) {
     RUN_TEST(test_nrc_other_than_pending_resolves_request_without_corrupting_state);
     RUN_TEST(test_multiframe_response_is_dropped_not_misparsed);
     RUN_TEST(test_did_first_frame_never_gets_a_flow_control);
+    RUN_TEST(test_d116_a_first_frame_every_ms_leaves_a_request_slot_per_window);
+    RUN_TEST(test_d116_first_frame_rates_from_2_to_2001_ms_leave_a_request_slot_per_window);
+    RUN_TEST(test_d116_second_first_frame_does_not_renew_and_expiry_step_ff_does_not_reopen);
+    RUN_TEST(test_d116_a_fresh_first_frame_after_the_window_holds_the_full_window);
     RUN_TEST(test_bus_off_triggers_recovery_with_backoff);
     RUN_TEST(test_bus_recovery_complete_restarts_driver);
     RUN_TEST(test_did_skipped_after_max_consecutive_timeouts_then_resumes);

@@ -295,6 +295,9 @@ private:
     unsigned long _fcPendingMs = 0;
     uint32_t _requestLostBaseline = 0;   // driver lost count when the 0x19/scan request went out
     unsigned long _txQuietUntilMs = 0;   // no request at all until then (yaml flow_control rule)
+    bool _ffHoldRun = false;             // D-116: a run of withheld First Frames holds the window
+    uint32_t _fcHoldNotRenewed = 0;      // D-116: withheld FFs inside the window (static stats)
+    void holdTxForWithheldFf(unsigned long now);
 
     // D-080 item 1: the warm-idle trigger, the generated D-079 W3 conditions over the last
     // valid, non-stale DID values (vehicle_cl250_dtc_warm_idle[]). Bookkeeping only.
