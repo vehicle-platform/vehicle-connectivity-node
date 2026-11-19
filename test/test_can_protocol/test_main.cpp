@@ -14,6 +14,10 @@
 // is completely unmodified for this to work; it only depends on ICanBus + the two
 // stubbed Arduino symbols (Serial, millis/delay) already provided for test_native.
 #include "HondaCANModule.cpp"
+#include "HondaCANBookkeeping.cpp"
+#include "HondaCANRx.cpp"
+#include "HondaCANDtc.cpp"
+#include "HondaCANScan.cpp"
 #include "vehicle_cl250.c"
 
 // G5.1 -- Native tests for HondaCANModule's actual UDS protocol logic (request state

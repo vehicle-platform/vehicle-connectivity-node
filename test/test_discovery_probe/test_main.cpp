@@ -17,6 +17,10 @@
 #include <vector>
 
 #include "HondaCANModule.cpp"
+#include "HondaCANBookkeeping.cpp"
+#include "HondaCANRx.cpp"
+#include "HondaCANDtc.cpp"
+#include "HondaCANScan.cpp"
 #include "vehicle_cl250.c"
 
 typedef std::vector<uint8_t> Bytes;
