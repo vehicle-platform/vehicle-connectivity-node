@@ -65,8 +65,8 @@ bool HondaCANModule::onDtcSingleFrame(const CanFrame& f, unsigned long now) {
     if (!_pendingDtc || _udsState != UdsRequestState::WAITING) {
         return false;
     }
-    const uint8_t len = (uint8_t)(f.data[0] & 0x0F);
-    if (len == 0 || len > isotp::kSingleFrameMaxLen || len + 1u > f.dlc) {
+    uint8_t len;
+    if (!singleFrameLength(f, len)) {
         return false;
     }
     const uint8_t* msg = &f.data[1];

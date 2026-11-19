@@ -58,8 +58,8 @@ bool HondaCANModule::onScanSingleFrame(const CanFrame& f, unsigned long now) {
     if (_pendingScanIndex < 0 || _udsState != UdsRequestState::WAITING) {
         return false;
     }
-    uint8_t len = (uint8_t)(f.data[0] & 0x0F);
-    if (len == 0 || len > isotp::kSingleFrameMaxLen || len + 1u > f.dlc) {
+    uint8_t len;
+    if (!singleFrameLength(f, len)) {
         return false;
     }
     uint8_t i = (uint8_t)_pendingScanIndex;

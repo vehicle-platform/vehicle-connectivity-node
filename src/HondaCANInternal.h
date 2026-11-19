@@ -99,6 +99,13 @@ inline bool beforeDeadline(unsigned long now, unsigned long deadline) {
     return deadline != 0 && (long)(deadline - now) > 0;
 }
 
+// Single Frame PCI check shared by the 0x19 and scan answer paths: the payload length `len`
+// (low nibble of byte 0) must be 1..7 and fit in the received DLC. False = not a valid SF.
+inline bool singleFrameLength(const CanFrame& f, uint8_t& len) {
+    len = (uint8_t)(f.data[0] & 0x0F);
+    return !(len == 0 || len > isotp::kSingleFrameMaxLen || len + 1u > f.dlc);
+}
+
 const uint8_t kSidSessionResponse = VEHICLE_CL250_SESSION_POSITIVE_SID;
 
 const uint8_t kSessionRequest[] = {VEHICLE_CL250_SESSION_SID, VEHICLE_CL250_SESSION_SUBFUNCTION};
