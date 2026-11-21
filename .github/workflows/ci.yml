@@ -14,9 +14,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       # vehicle-defs is public (D-033): the submodule needs no secret.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           submodules: recursive
+          persist-credentials: false
 
       # D-003/D-036: consumers pin defs to a release tag, never a branch commit.
       - name: Defs pin must be a release tag
@@ -30,7 +31,7 @@ jobs:
       # cppcheck (2.13) grades some checks differently, so local and CI runs would disagree.
       - name: Restore cppcheck 2.22.0
         id: cppcheck
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/cppcheck
           key: cppcheck-2.22.0-ubuntu-24.04
@@ -46,7 +47,7 @@ jobs:
 
       - name: Save cppcheck 2.22.0
         if: steps.cppcheck.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/cppcheck
           key: cppcheck-2.22.0-ubuntu-24.04
@@ -84,7 +85,7 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         id: python
         with:
           python-version: "3.11"
@@ -94,7 +95,7 @@ jobs:
       # restores a broken venv ("Missing Python executable"), so the key carries the
       # full version.
       - name: Cache PlatformIO
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.platformio
           key: ${{ runner.os }}-platformio-py${{ steps.python.outputs.python-version }}-${{ hashFiles('platformio.ini', 'sdkconfig.defaults') }}
