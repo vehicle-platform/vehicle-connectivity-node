@@ -550,8 +550,8 @@ void test_no_fc_without_a_scan_request_in_flight(void) {
     TEST_ASSERT_EQUAL(0, countFc(bus));
 }
 
-void test_a_too_long_or_invalid_first_frame_gets_no_fc_and_a_quiet_time(void) {
-    for (int announced : {(int)VEHICLE_CL250_MAX_FF_DL + 1, 7, 0}) {
+void test_a_too_long_first_frame_gets_no_fc_and_a_quiet_time(void) {
+    for (int announced : {(int)VEHICLE_CL250_MAX_FF_DL + 1}) {
         MockCanBus bus;
         MockTesterLatchStore latchStore;
         HondaCANModule module(bus, latchStore);
@@ -575,6 +575,31 @@ void test_a_too_long_or_invalid_first_frame_gets_no_fc_and_a_quiet_time(void) {
         setClock(t += 20);
         module.update(state);
         TEST_ASSERT_TRUE(bus.txLog.size() > 0);
+    }
+}
+
+// D-116 item 3: an invalid First Frame (FF_DL 0..7) is dropped as if never received: no FC, no
+// quiet time, the scan request in flight runs into its own timeout.
+void test_an_invalid_first_frame_is_dropped_without_a_quiet_time(void) {
+    for (int announced : {7, 0}) {
+        MockCanBus bus;
+        MockTesterLatchStore latchStore;
+        HondaCANModule module(bus, latchStore);
+        SystemState state;
+        unsigned long t = scanUpTo(module, bus, state, kDtcList);
+        bus.injectRxFrame(firstFrame(defaultEcu(requestOf(kDtcList)), VEHICLE_CL250_RESPONSE_ID, true, announced));
+        setClock(t += 5);
+        module.update(state);
+        TEST_ASSERT_EQUAL(0, countFc(bus));
+        TEST_ASSERT_TRUE(module.testScan().status(kDtcList) == DiscoveryScan::Status::PENDING);
+        unsigned long at = t;
+        bool sent = false;
+        while (t < at + kResponsePendingMaxMs - 5 && !sent) {
+            setClock(t += 5);
+            module.update(state);
+            sent = bus.txLog.size() > 0;
+        }
+        TEST_ASSERT_TRUE(sent); // not held for the quiet time
     }
 }
 
@@ -1418,7 +1443,8 @@ int main(int, char**) {
     RUN_TEST(test_fc_for_a_fallback_answer_goes_to_the_fallback_request_id);
     RUN_TEST(test_no_fc_for_a_first_frame_that_does_not_answer_the_request_in_flight);
     RUN_TEST(test_no_fc_without_a_scan_request_in_flight);
-    RUN_TEST(test_a_too_long_or_invalid_first_frame_gets_no_fc_and_a_quiet_time);
+    RUN_TEST(test_a_too_long_first_frame_gets_no_fc_and_a_quiet_time);
+    RUN_TEST(test_an_invalid_first_frame_is_dropped_without_a_quiet_time);
     RUN_TEST(test_a_full_burst_of_the_maximum_length_completes_in_one_pass);
     RUN_TEST(test_a_refused_fc_aborts_the_reception_and_is_never_resent);
     RUN_TEST(test_a_sequence_gap_aborts_the_reception);

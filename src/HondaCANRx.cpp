@@ -305,6 +305,12 @@ void HondaCANModule::failSegmented(const char* why, uint16_t received, uint16_t 
 }
 
 void HondaCANModule::onFirstFrame(const CanFrame& f, unsigned long now, uint8_t& logBudget) {
+    // D-116 item 3 (mirrors rt-core isotp_core rx_first_frame): an invalid First Frame (shorter
+    // than 8 bytes, FF_DL 0 = escape, FF_DL 1..7 = must be a Single Frame) is dropped as if it
+    // had not been received: no hold, no log, no effect on a pending read or a reception.
+    if (f.dlc < VEHICLE_CL250_FRAME_DLC || IsoTpReceiver::firstFrameLength(f) < IsoTpReceiver::kMinFirstFrameLength) {
+        return;
+    }
     if (_isoRx.active() || _fcPending) {
         const CanFrame& current = _isoRx.active() ? f : _fcPendingFrame;
         bool sameId = _isoRx.active() ? _isoRx.fromReceptionId(f)

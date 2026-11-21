@@ -461,6 +461,51 @@ void test_d116_item2_repeated_non_0x62_first_frames_never_skip_the_did(void) {
     }
 }
 
+// D-116 item 3 (mirrors rt-core test_cl250_invalid_first_frames_are_dropped_without_a_withheld_fc):
+// an invalid First Frame (FF_DL 0 = escape, FF_DL 1..7 = must be a Single Frame, a frame shorter than
+// 8 bytes) never starts a quiet-window hold and does not end a pending read: the tester behaves as if
+// it had not been received. No request, service or gate changes.
+void test_d116_item3_invalid_first_frames_never_start_a_hold(void) {
+    struct Bad { uint8_t pci; uint8_t dl; uint8_t dlc; };
+    const Bad bad[] = {{0x10, 0x00, 8}, {0x10, 0x01, 8}, {0x10, 0x07, 8}, {0x10, 0x0A, 7}, {0x10, 0x0A, 1}};
+    for (const Bad& b : bad) {
+        MockCanBus bus;
+        MockTesterLatchStore latchStore;
+        HondaCANModule module(bus, latchStore);
+        SystemState state;
+        startPolling(module, state);
+        unsigned long firstReq = 0;
+        for (unsigned long t = 1; t < 300 && firstReq == 0; t++) {
+            setClock(t);
+            const size_t before = bus.txLog.size();
+            module.update(state);
+            for (size_t i = before; i < bus.txLog.size(); i++) {
+                if (isRequestFrame(bus.txLog[i])) firstReq = t;
+            }
+        }
+        TEST_ASSERT_TRUE(firstReq > 0);
+        CanFrame ff = makeFirstFrameWithSid(0x62);
+        ff.data[0] = b.pci;
+        ff.data[1] = b.dl;
+        ff.dlc = b.dlc;
+        bus.injectRxFrame(ff);
+        // The read is not ended by it: it times out (counted) and requests resume after the base
+        // timeout, long before a 2000 ms hold would end.
+        unsigned long nextReq = 0;
+        for (unsigned long t = firstReq + 1; t < firstReq + 1000 && nextReq == 0; t++) {
+            setClock(t);
+            const size_t before = bus.txLog.size();
+            module.update(state);
+            for (size_t i = before; i < bus.txLog.size(); i++) {
+                if (isRequestFrame(bus.txLog[i])) nextReq = t;
+            }
+        }
+        TEST_ASSERT_TRUE(nextReq > 0);
+        TEST_ASSERT_TRUE(nextReq < firstReq + VEHICLE_CL250_RESPONSE_TIMEOUT_MAX_MS);
+        TEST_ASSERT_EQUAL_UINT32(1, module.unansweredDidCount()); // the read timed out as usual
+    }
+}
+
 void test_bus_off_triggers_recovery_with_backoff(void) {
     MockCanBus bus;
     MockTesterLatchStore latchStore;
@@ -3905,6 +3950,7 @@ int main(int, char**) {
     RUN_TEST(test_d116_a_fresh_first_frame_after_the_window_holds_the_full_window);
     RUN_TEST(test_d116_item2_a_non_0x62_first_frame_ends_a_pending_read_without_a_did_consequence);
     RUN_TEST(test_d116_item2_repeated_non_0x62_first_frames_never_skip_the_did);
+    RUN_TEST(test_d116_item3_invalid_first_frames_never_start_a_hold);
     RUN_TEST(test_bus_off_triggers_recovery_with_backoff);
     RUN_TEST(test_bus_recovery_complete_restarts_driver);
     RUN_TEST(test_did_skipped_after_max_consecutive_timeouts_then_resumes);
