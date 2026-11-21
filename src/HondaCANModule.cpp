@@ -291,6 +291,7 @@ void HondaCANModule::poll(SystemState& state) {
                 continue;
             }
             if (now - slot.lastRequestMs >= slot.cadenceMs) {
+                _prevDidRequestMs = slot.lastRequestMs; // D-116 item 2: restored if a wrong-answer FF ends the read
                 slot.lastRequestMs = now;
                 _pendingDidIndex = i;
                 _pendingDid = slot.did;

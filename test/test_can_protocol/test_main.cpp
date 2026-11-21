@@ -369,6 +369,98 @@ void test_d116_a_fresh_first_frame_after_the_window_holds_the_full_window(void) 
     TEST_ASSERT_TRUE(bus.txLog.size() > before);
 }
 
+// D-116 item 2 (mirrors rt-core test_a_non_0x62_first_frame_ends_a_pending_read_without_a_did_consequence):
+// a withheld First Frame whose first payload byte is not the pending read's positive SID (0x62)
+// ends the read with no DID consequence: no timeout count, no skip or stop, the read is due again
+// as before it was sent. The quiet window of item 1 still applies. No request, service or gate changes.
+static CanFrame makeFirstFrameWithSid(uint8_t sid) {
+    CanFrame ff = makeMultiFrameFirstFrame();
+    ff.data[1] = 0x0A; // FF_DL 10
+    ff.data[2] = sid;
+    ff.data[3] = 0x00;
+    ff.data[4] = 0x00;
+    return ff;
+}
+
+// Runs to the first DID read, injects a First Frame with `sid` on the next pass, then runs on to
+// `end`. Returns the number of DID read requests sent after the First Frame.
+static size_t runReadThenFirstFrame(uint8_t sid, unsigned long end, unsigned long* firstReadAfterMs,
+                                    uint32_t* unanswered, unsigned long* ffAtMs) {
+    MockCanBus bus;
+    MockTesterLatchStore latchStore;
+    HondaCANModule module(bus, latchStore);
+    SystemState state;
+    startPolling(module, state);
+    bool ffSent = false;
+    size_t readsAfter = 0;
+    *firstReadAfterMs = 0;
+    for (unsigned long t = 1; t < end; t++) {
+        setClock(t);
+        const size_t before = bus.txLog.size();
+        module.update(state);
+        for (size_t i = before; i < bus.txLog.size(); i++) {
+            const CanFrame& f = bus.txLog[i];
+            if (f.id == VEHICLE_CL250_REQUEST_ID && f.data[1] == UDS_SID_READ_DATA_BY_IDENTIFIER) {
+                if (!ffSent) {
+                    bus.injectRxFrame(makeFirstFrameWithSid(sid)); // drained on the next pass
+                    ffSent = true;
+                    *ffAtMs = t + 1;
+                } else {
+                    if (readsAfter == 0) {
+                        *firstReadAfterMs = t;
+                        *unanswered = module.unansweredDidCount(); // before any later read can time out
+                    }
+                    readsAfter++;
+                }
+            }
+        }
+    }
+    return readsAfter;
+}
+
+void test_d116_item2_a_non_0x62_first_frame_ends_a_pending_read_without_a_did_consequence(void) {
+    const uint8_t sids[] = {0x54, 0x59, 0x00, 0x7F};
+    for (uint8_t sid : sids) {
+        unsigned long firstRead = 0;
+        unsigned long ffAt = 0;
+        uint32_t unanswered = 99;
+        const size_t reads = runReadThenFirstFrame(sid, 6000, &firstRead, &unanswered, &ffAt);
+        TEST_ASSERT_EQUAL_UINT32(0, unanswered); // not a timeout: the read ended at the FF
+        TEST_ASSERT_TRUE(reads >= 1);
+        // The quiet window (item 1) from the FF still holds every request; the read is due as soon as it closes.
+        TEST_ASSERT_TRUE(firstRead >= ffAt + VEHICLE_CL250_RESPONSE_TIMEOUT_MAX_MS);
+        TEST_ASSERT_TRUE(firstRead <= ffAt + VEHICLE_CL250_RESPONSE_TIMEOUT_MAX_MS + 2);
+    }
+}
+
+// A run of such First Frames never builds the consecutive-timeout count toward a skip: the DID
+// keeps being asked every window.
+void test_d116_item2_repeated_non_0x62_first_frames_never_skip_the_did(void) {
+    MockCanBus bus;
+    MockTesterLatchStore latchStore;
+    HondaCANModule module(bus, latchStore);
+    SystemState state;
+    startPolling(module, state);
+    size_t reads = 0;
+    for (unsigned long t = 1; t < 30000; t++) {
+        setClock(t);
+        const size_t before = bus.txLog.size();
+        module.update(state);
+        for (size_t i = before; i < bus.txLog.size(); i++) {
+            const CanFrame& f = bus.txLog[i];
+            if (f.id == VEHICLE_CL250_REQUEST_ID && f.data[1] == UDS_SID_READ_DATA_BY_IDENTIFIER) {
+                bus.injectRxFrame(makeFirstFrameWithSid(0x54));
+                reads++;
+            }
+        }
+    }
+    TEST_ASSERT_TRUE(reads >= 10);
+    TEST_ASSERT_EQUAL_UINT32(0, module.unansweredDidCount());
+    for (uint8_t i = 0; i < VEHICLE_CL250_DID_COUNT; i++) {
+        TEST_ASSERT_FALSE(module.didStopped(i));
+    }
+}
+
 void test_bus_off_triggers_recovery_with_backoff(void) {
     MockCanBus bus;
     MockTesterLatchStore latchStore;
@@ -3811,6 +3903,8 @@ int main(int, char**) {
     RUN_TEST(test_d116_first_frame_rates_from_2_to_2001_ms_leave_a_request_slot_per_window);
     RUN_TEST(test_d116_second_first_frame_does_not_renew_and_expiry_step_ff_does_not_reopen);
     RUN_TEST(test_d116_a_fresh_first_frame_after_the_window_holds_the_full_window);
+    RUN_TEST(test_d116_item2_a_non_0x62_first_frame_ends_a_pending_read_without_a_did_consequence);
+    RUN_TEST(test_d116_item2_repeated_non_0x62_first_frames_never_skip_the_did);
     RUN_TEST(test_bus_off_triggers_recovery_with_backoff);
     RUN_TEST(test_bus_recovery_complete_restarts_driver);
     RUN_TEST(test_did_skipped_after_max_consecutive_timeouts_then_resumes);
