@@ -393,6 +393,18 @@ void HondaCANModule::onFirstFrame(const CanFrame& f, unsigned long now, uint8_t&
             slot.skipUntilMs = now + kDidSkipCooldownMs;
         }
         _udsState = UdsRequestState::COMPLETE;
+    } else if (_udsState == UdsRequestState::WAITING && _pendingDidIndex >= 0 && inFrame >= 1 &&
+               f.data[2] != (uint8_t)(UDS_SID_READ_DATA_BY_IDENTIFIER + UDS_POSITIVE_RESPONSE_OFFSET)) {
+        // D-116 item 2 (mirrors rt-core uds_client_core F4): a withheld First Frame that is not a
+        // positive 0x62 answer is not this read's. The read ends without a DID consequence: no
+        // timeout count, no skip or stop, no sample; the DID is due again as before it was sent.
+        // The 0x19 branch above may also have run (a late 0x19 answer). Only what happens to the
+        // pending read changes: no request, service or gate, the quiet window is the one held above.
+        _dids[_pendingDidIndex].lastRequestMs = _prevDidRequestMs;
+        if (_pendingDidIndex == VEHICLE_CL250_IDX_ENGINE_SPEED) {
+            _rpmRunSamples = 0; // D-069 item 3: the RPM samples must be consecutive
+        }
+        _udsState = UdsRequestState::IDLE; // not COMPLETE: that would clear consecutiveTimeouts
     }
 }
 

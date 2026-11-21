@@ -192,6 +192,7 @@ private:
     UdsRequestState _udsState = UdsRequestState::IDLE;
     int8_t _pendingDidIndex = -1;
     uint16_t _pendingDid = 0;
+    unsigned long _prevDidRequestMs = 0;   // the pending read's lastRequestMs before it was sent
     uint8_t _pendingSid = 0;               // SID of the request in flight (NRC matching)
     unsigned long _requestSentMs = 0;
     unsigned long _requestFirstSentMs = 0; // first send of the pending request (0x78 cap, round trip)
