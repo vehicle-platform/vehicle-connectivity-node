@@ -19,6 +19,7 @@
 #define CHARACTERISTIC_UUID_IMU BLE_GATT_IMU_CHAR_UUID
 #define CHARACTERISTIC_UUID_GPS BLE_GATT_GPS_CHAR_UUID
 #define CHARACTERISTIC_UUID_VSIG BLE_GATT_VEHICLE_SIGNALS_CHAR_UUID
+#define CHARACTERISTIC_UUID_RIDER_INPUT BLE_GATT_RIDER_INPUT_CHAR_UUID
 
 // Largest ATT MTU this node accepts; the central asks for BLE_GATT_REQUESTED_MTU (185) and the
 // negotiated value is the smaller of the two. It must not be below what the schema promises.
@@ -38,7 +39,8 @@ GpsErrorCounters gpsErrorCounters(const GpsStatus& gps) {
 }
 } // namespace
 
-BLEServerModule::BLEServerModule(ImuRing* imuRing) : _imuRing(imuRing) {}
+BLEServerModule::BLEServerModule(ImuRing* imuRing, RiderInputCore* riderInput)
+    : _imuRing(imuRing), _riderInput(riderInput) {}
 
 // BLE stack task context. The central starts the MTU exchange (vehicle-mobile requests
 // 185); until then, and for every new connection, the ATT default of 23 applies.
@@ -155,6 +157,16 @@ bool BLEServerModule::begin() {
         BLECharacteristic::PROPERTY_NOTIFY
     );
     _pVsigCharacteristic->addDescriptor(new BLE2902()); // one-time, see begin() note on heap use
+
+    // Rider input block (Notify) Characteristic, D-047 item 1 / D-121 item 5: the handlebar
+    // push-to-talk button events for the phone's voice session. Present in every build; it only
+    // notifies when RIDER_PTT_GPIO is set. Informational only (nothing safety-related reads
+    // it), so like telemetry it needs no encryption.
+    _pRiderInputCharacteristic = pService->createCharacteristic(
+        CHARACTERISTIC_UUID_RIDER_INPUT,
+        BLECharacteristic::PROPERTY_NOTIFY
+    );
+    _pRiderInputCharacteristic->addDescriptor(new BLE2902()); // one-time, see begin() note on heap use
 
     // Create Telematics RX (Write) Characteristic
     _pRxCharacteristic = pService->createCharacteristic(
@@ -280,6 +292,10 @@ void BLEServerModule::update(SystemState& state) {
         // BLE_VSIG_MAX_BLOCKS_PER_PERIOD (3) notifications, like the IMU pass (D-053).
         _lastVsigNotify = now;
         sendVehicleSignalBlocks(state, now, s_peerMtu.load(std::memory_order_relaxed));
+    } else if (_deviceConnected && _riderInput && _riderInput->pending()) {
+        // A button event is rare: one block on a pass of its own, so a pass still carries at
+        // most IMU_MAX_BLOCKS_PER_NOTIFY notifications (D-053). GPS follows on the next pass.
+        sendRiderInputBlock();
     } else if (_deviceConnected) {
         // GPS comes after telemetry and IMU in this chain, so a pass still carries at most
         // IMU_MAX_BLOCKS_PER_NOTIFY notifications (D-053). One block per NAV-PVT, at most one
@@ -289,6 +305,10 @@ void BLEServerModule::update(SystemState& state) {
         // Nobody to send to: a new connection starts with fresh samples and no old events.
         _imuRing->clear();
         _imuRing->takeEvents();
+    }
+
+    if (!_deviceConnected && _riderInput) {
+        _riderInput->clear(); // button events are for the current peer only, never replayed
     }
 
     // Auto-restart BLE advertising upon disconnection so phone can reconnect. Waits 500 ms
@@ -384,4 +404,14 @@ void BLEServerModule::sendGpsBlock(const SystemState& state, unsigned long now, 
     }
     _pGpsCharacteristic->setValue(_gpsBlock, len);
     _pGpsCharacteristic->notify();
+}
+
+void BLEServerModule::sendRiderInputBlock() {
+    // The block is 8 bytes: it fits the default MTU, so there is no MTU check.
+    size_t len = _riderInput->popBlock(_riderInputBlock, sizeof(_riderInputBlock));
+    if (len == 0) {
+        return;
+    }
+    _pRiderInputCharacteristic->setValue(_riderInputBlock, len);
+    _pRiderInputCharacteristic->notify();
 }
