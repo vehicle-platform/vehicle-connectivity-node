@@ -69,6 +69,7 @@
 #endif
 #include "NextionModule.h"
 #include "BLEServerModule.h"
+#include "RiderInputModule.h"
 #include "ImuModule.h"
 #if CONN_GPS
 #include "GpsModule.h"
@@ -193,7 +194,10 @@ NextionModule      displayModule(NextionSerial, UART2_RX_PIN, UART2_TX_PIN);
 // poller and present in every build (no vehicle-bus involvement).
 ImuRing            imuRing;
 ImuModule          imuModule(imuRing);
-BLEServerModule    bleModule(&imuRing);
+// D-047 item 1 / D-121 item 5: handlebar push-to-talk. Disabled (RIDER_PTT_GPIO = -1) until the
+// pin is chosen; its events leave only through the BLE rider-input characteristic.
+RiderInputModule   riderInputModule;
+BLEServerModule    bleModule(&imuRing, &riderInputModule.core());
 #if CONN_GPS
 // D-060: speed and heading only, never a position. Fills state.gps, which bleModule sends
 // as GPS blocks (no GPS pointer: BLE reads the SystemState copy).
@@ -223,6 +227,7 @@ IConsumerModule* consumers[] = {
     &displayModule,
     &wifiModule,
     &loggerModule,
+    &riderInputModule,
 };
 
 const uint8_t PRODUCER_COUNT = sizeof(producers) / sizeof(producers[0]);
@@ -236,7 +241,7 @@ const char* PRODUCER_NAMES[PRODUCER_COUNT] = {
     "GPS",
 #endif
     "BLE"};
-const char* CONSUMER_NAMES[CONSUMER_COUNT] = {"Nextion", "WiFi", "Logger"};
+const char* CONSUMER_NAMES[CONSUMER_COUNT] = {"Nextion", "WiFi", "Logger", "PTT"};
 
 // ============================================================================
 // G0.1 -- LOOP TIMING INSTRUMENTATION

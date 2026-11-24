@@ -5,6 +5,7 @@
 #include "BLETelemetryPacket.h"
 #include "GpsNotifyTracker.h"
 #include "ImuBlockPacket.h"
+#include "RiderInputCore.h"
 #include "TelematicsParser.h"
 #include "VehicleSignalBlock.h"
 
@@ -61,6 +62,12 @@ private:
     GpsNotifyTracker _gpsTracker;
     uint8_t _gpsBlock[GPS_BLOCK_BYTES] = {};
 
+    // Rider input blocks (D-047 item 1, D-121 item 5): handlebar push-to-talk events queued by
+    // RiderInputModule, notified on a characteristic that exists in every build.
+    RiderInputCore* _riderInput = nullptr;
+    BLECharacteristic* _pRiderInputCharacteristic = nullptr;
+    uint8_t _riderInputBlock[RIDER_INPUT_BLOCK_BYTES] = {};
+
     // Vehicle-signal blocks (D-066 item 4) from state.vehicleSignals, paged through the DID
     // table (VehicleSignalBlock.h).
     BLECharacteristic* _pVsigCharacteristic = nullptr;
@@ -78,12 +85,13 @@ private:
     void sendTelemetry(const SystemState& state, unsigned long now, uint16_t mtu);
     void sendImuBlocks(uint16_t mtu);
     void sendGpsBlock(const SystemState& state, unsigned long now, uint16_t mtu);
+    void sendRiderInputBlock();
     void sendVehicleSignalBlocks(const SystemState& state, unsigned long now, uint16_t mtu);
 
     QueueHandle_t _telematicsQueue = nullptr;
 
 public:
-    explicit BLEServerModule(ImuRing* imuRing = nullptr);
+    explicit BLEServerModule(ImuRing* imuRing = nullptr, RiderInputCore* riderInput = nullptr);
     virtual ~BLEServerModule() {}
 
     bool begin() override;
